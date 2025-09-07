@@ -7,12 +7,15 @@ from omegaconf import OmegaConf
 from Bio.PDB import PDBParser
 
 import sys
-sys.path.append('../')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 from datasets import Mutation
 from train_thermompnn import TransferModelPL
 from protein_mpnn_utils import tied_featurize, alt_parse_PDB
-from thermompnn_benchmarking import get_trained_model
-from SSM import get_ssm_mutations
+from .thermompnn_benchmarking import get_trained_model
+from .SSM import get_ssm_mutations
 
 
 ALPHABET = 'ACDEFGHIKLMNPQRSTVWYX'
@@ -121,6 +124,6 @@ if __name__ == "__main__":
     parser.add_argument('--out_dir', type=str, default='./', help='Output directory in which to save predictions.')
 
     args = parser.parse_args()
-    cfg = OmegaConf.load("../local.yaml")
+    cfg = OmegaConf.load(os.path.join(ROOT, "local.yaml"))
     with torch.no_grad():
         main(cfg, args)

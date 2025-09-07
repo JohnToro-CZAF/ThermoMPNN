@@ -5,12 +5,15 @@ from omegaconf import OmegaConf
 
 import os
 import sys
-sys.path.append('../')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 from datasets import MegaScaleDataset, ddgBenchDataset, FireProtDataset, Mutation
 from protein_mpnn_utils import loss_smoothed, tied_featurize
 from train_thermompnn import TransferModelPL
 from model_utils import featurize
-from thermompnn_benchmarking import compute_centrality, ProteinMPNNBaseline, get_trained_model, ALPHABET
+from .thermompnn_benchmarking import compute_centrality, ProteinMPNNBaseline, get_trained_model, ALPHABET
 
 
 def get_ssm_mutations(pdb):
@@ -172,13 +175,14 @@ def main(cfg, args):
                 print('Completed protein:', mut.pdb)
                 print('Mutations processed:', raw_pred_df.shape)
 
-            raw_pred_df = raw_pred_df.reset_index(drop=True)
+            raw_pred_df = pd.DataFrame(raw_pred_df).reset_index(drop=True)
             raw_pred_df.to_csv(name + '_' + dataset_name + "_SSM_preds.csv")
             del raw_pred_df
 
 
 if __name__ == "__main__":
-    cfg = OmegaConf.load("../local.yaml")
+    cfg = OmegaConf.load(os.path.join(ROOT, "local.yaml"))
+    
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--pick_best', action='store_true', default=False,

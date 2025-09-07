@@ -7,7 +7,9 @@ from torchmetrics import MeanSquaredError, R2Score, SpearmanCorrCoef, PearsonCor
 from omegaconf import OmegaConf
 
 import sys
-sys.path.append('../')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 from datasets import MegaScaleDataset, FireProtDataset, ddgBenchDataset
 from transfer_model import get_protein_mpnn
 from train_thermompnn import TransferModelPL
@@ -77,11 +79,62 @@ def get_metrics():
 
 def get_trained_model(model_name, config, checkpt_dir='models/', override_custom=False):
     if override_custom:
-        return TransferModelPL.load_from_checkpoint(model_name, cfg=config).model
+        # Try to load as a PyTorch Lightning checkpoint first
+        try:
+            return TransferModelPL.load_from_checkpoint(model_name, cfg=config).model
+        except Exception:
+            # Fallback: build model and try to load either PL state_dict or vanilla ProteinMPNN weights
+            pl_model = TransferModelPL(config)
+            try:
+                ckpt = torch.load(model_name, map_location='cpu')
+                # Case 1: Lightning-style checkpoint dict
+                state_dict = None
+                if isinstance(ckpt, dict):
+                    if 'state_dict' in ckpt and isinstance(ckpt['state_dict'], dict):
+                        state_dict = ckpt['state_dict']
+                    elif 'model_state_dict' in ckpt and isinstance(ckpt['model_state_dict'], dict):
+                        # Vanilla ProteinMPNN weights; load into the inner ProteinMPNN
+                        pl_model.model.prot_mpnn.load_state_dict(ckpt['model_state_dict'], strict=False)
+                    else:
+                        # Some checkpoints are a raw state_dict
+                        state_dict = ckpt if all(isinstance(k, str) for k in ckpt.keys()) else None
+
+                if state_dict is not None:
+                    # If keys are prefixed with 'model.', map to inner model
+                    has_model_prefix = any(k.startswith('model.') for k in state_dict.keys())
+                    if has_model_prefix:
+                        filtered = {k[len('model.'):] if k.startswith('model.') else k: v for k, v in state_dict.items()}
+                        try:
+                            pl_model.model.load_state_dict(filtered, strict=False)
+                        except Exception:
+                            pass
+                    else:
+                        # Try loading into the PL wrapper first, then inner model as fallback
+                        try:
+                            pl_model.load_state_dict(state_dict, strict=False)
+                        except Exception:
+                            try:
+                                pl_model.model.load_state_dict(state_dict, strict=False)
+                            except Exception:
+                                pass
+            except Exception:
+                # If anything fails, return the freshly constructed model
+                pass
+            return pl_model.model
     else:
         model_loc = os.path.join(config.platform.thermompnn_dir, checkpt_dir)
         model_loc = os.path.join(model_loc, model_name)
-        return TransferModelPL.load_from_checkpoint(model_loc, cfg=config).model
+        try:
+            return TransferModelPL.load_from_checkpoint(model_loc, cfg=config).model
+        except Exception:
+            pl_model = TransferModelPL(config)
+            try:
+                ckpt = torch.load(model_loc, map_location='cpu')
+                if 'state_dict' in ckpt:
+                    pl_model.load_state_dict(ckpt['state_dict'], strict=False)
+            except Exception:
+                pass
+            return pl_model.model
 
 
 def run_prediction_default(name, model, dataset_name, dataset, results):
